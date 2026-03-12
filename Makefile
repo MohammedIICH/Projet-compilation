@@ -5,7 +5,7 @@ LDFLAGS =
 TARGET  = analyseur
 OBJECTS = main.o symbole.o lexer.o etat.o automate.o
 
-# Objets partages (sans main.o) pour les tests
+# Objets partages (sans main.o ni tester.o)
 SHARED_OBJECTS = symbole.o lexer.o etat.o automate.o
 
 # Cible par defaut
@@ -25,6 +25,13 @@ tests: tests.o $(SHARED_OBJECTS)
 tests.o: tests.cpp automate.h
 	$(CXX) $(CXXFLAGS) -c tests.cpp
 
+# Calculatrice ligne de commande
+tester: tester.o $(SHARED_OBJECTS)
+	$(CXX) $(CXXFLAGS) -o tester tester.o $(SHARED_OBJECTS) $(LDFLAGS)
+
+tester.o: tester.cpp automate.h
+	$(CXX) $(CXXFLAGS) -c tester.cpp
+
 # Compilation des fichiers objets
 main.o: main.cpp automate.h
 	$(CXX) $(CXXFLAGS) -c main.cpp
@@ -43,10 +50,10 @@ automate.o: automate.cpp automate.h etat.h
 
 # Nettoyage des fichiers generes
 clean:
-	rm -f $(OBJECTS) tests.o tests $(TARGET)
+	rm -f $(OBJECTS) tests.o tests tests.exe tester.o tester tester.exe $(TARGET)
 
 # Execution du programme
 run: $(TARGET)
 	./$(TARGET)
 
-.PHONY: all clean run test
+.PHONY: all clean run test tester
