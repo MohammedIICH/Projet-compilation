@@ -1,88 +1,111 @@
+TP Compilation — Analyseur syntaxique LALR(1) avec évaluation
+=============================================================
+
+
 1. COMPILATION
-   Pour compiler le projet:
+──────────────
 
-      $ make
-
-   Cela genere l'executable "analyseur". 
-
-   Pour nettoyer les fichiers objets et l'executable:
-
-      $ make clean
-
-   Pour compiler et executer directement:
-
-      $ make run
+   $ make          →  compile et produit l'exécutable "analyseur"
+   $ make run      →  compile puis exécute
+   $ make clean    →  supprime les fichiers objets et l'exécutable
 
 
-2. STRUCTURE DU PROJET
+2. UTILISATION
+──────────────
 
-   Fichiers sources:
-   - symbole.h/cpp     : Definition des symboles (terminaux et non-terminaux)
-   - lexer.h/cpp       : Analyseur lexical - tokenisation de l'entree
-   - automate.h/cpp    : Analyseur syntaxique par descente recursive
-   - etat.h/cpp        : Architecture Pattern State (documentation/alternative)
-   - main.cpp          : Programme principal avec tests
+   Mode test intégré (10 expressions prédéfinies) :
 
-   Makefile            : Automatisation de la compilation
+      $ ./analyseur
 
+   Mode ligne de commande (une expression en argument) :
 
-3. FONCTIONNEMENT
-
-   L'analyseur utilise une approche par descente recursive avec evaluation
-   on-the-fly des expressions. La grammaire acceptee est:
-
-      E  -> E + E  (associativite gauche)
-      E  -> E * E  (associativite gauche)
-      E  -> (E)
-      E  -> entier
-
-   Exemple: 1+2*3 evalue a 7 (respecte des priorites)
+      $ g++ -Wall -std=c++11 -o tester tester.cpp symbole.o lexer.o etat.o automate.o
+      $ ./tester "1+2*3"
+      7
 
 
-4. PRIORITES OPERATOIRES
+3. STRUCTURE DU PROJET
+──────────────────────
 
-   L'ordre de priorite est assure par la structure hierarchique de la descente
-   recursive:
+   symbole.h / symbole.cpp   —  Hiérarchie des symboles (Symbole, Entier, Expression)
+   lexer.h   / lexer.cpp     —  Analyseur lexical (tokenisation de la chaîne d'entrée)
+   etat.h    / etat.cpp      —  Design pattern State : classes Etat0 … Etat9
+   automate.h / automate.cpp —  Automate LALR(1) : boucle d'analyse + évaluation
+   main.cpp                  —  Programme principal avec suite de tests
+   tester.cpp                —  Point d'entrée pour les tests de l'équipe enseignante
+   Makefile                  —  Règles de compilation
 
-   - addition()  : niveau bas (+ a la priorite la plus basse)
-   - multiplication() : niveau intermediaire (* a priorite plus haute)
-   - primaire()  : niveau haut (nombres et expressions entre parentheses)
 
-   Lors de l'appel addition() -> multiplication() -> primaire(), les
-   expressions avec * sont evaluees en premier, garantissant la priorite.
+4. ARCHITECTURE — AUTOMATE LALR(1) + PATTERN STATE
+───────────────────────────────────────────────────
 
-   Associativite garantie par les boucles while dans addition() et
-   multiplication() qui lient a gauche les operateurs du meme niveau.
+   Grammaire (ambiguë G1) :
+      1)  E' → E
+      2)  E  → E + E   (associativité gauche)
+      3)  E  → E * E   (associativité gauche, priorité sur +)
+      4)  E  → ( E )
+      5)  E  → val
+
+   L'Automate maintient deux piles :
+      • pilEtat    : stack<Etat*>    — pile des états courants
+      • pilSymbole : stack<Symbole*> — pile des symboles/valeurs
+
+   Boucle principale dans Automate::Analyser() :
+      tant que non accepté et non erreur :
+         pilEtat.top()->transition(automate, lexer.Consulter())
+
+   Chaque état concret (EtatN) implémente transition() selon la table LALR(1) :
+
+      — Décalage (dN)  : empile le symbole, avance le lexer, empile EtatN
+      — Réduction (rX) : dépile |rhs| symboles + états, calcule la valeur,
+                         empile une Expression, appelle GOTO sur l'état suivant
+      — Acceptation    : enregistre le résultat, arrête la boucle
+      — GOTO (E reçu)  : empile le bon état de destination
+
+   Table LALR(1) résolue :
+
+   Etat │ val  │  +   │  *   │  (   │  )   │  $   ║ E (goto)
+   ─────┼──────┼──────┼──────┼──────┼──────┼──────╫─────────
+     0  │  d3  │      │      │  d2  │      │      ║    1
+     1  │      │  d4  │  d5  │      │      │  acc ║
+     2  │  d3  │      │      │  d2  │      │      ║    6
+     3  │      │  r5  │  r5  │      │  r5  │  r5  ║
+     4  │  d3  │      │      │  d2  │      │      ║    7
+     5  │  d3  │      │      │  d2  │      │      ║    8
+     6  │      │  d4  │  d5  │      │  d9  │      ║
+     7  │      │  r2  │  d5  │      │  r2  │  r2  ║  (* priorité sur +)
+     8  │      │  r3  │  r3  │      │  r3  │  r3  ║  (* assoc. gauche)
+     9  │      │  r4  │  r4  │      │  r4  │  r4  ║
+
+   Productions :  r2 = E→E+E   r3 = E→E*E   r4 = E→(E)   r5 = E→val
+
+   Résolution des conflits :
+      • État 7, + : conflit d4/r2  →  r2  (associativité gauche de +)
+      • État 7, * : conflit d5/r2  →  d5  (priorité de * sur +)
+      • État 8, + : conflit d4/r3  →  r3  (priorité de * sur +)
+      • État 8, * : conflit d5/r3  →  r3  (associativité gauche de *)
 
 
 5. EXEMPLES DE TEST
+───────────────────
 
-   42              -> 42
-   1+2             -> 3
-   2*3             -> 6
-   1+2*3           -> 7         (1+(2*3), pas 9)
-   2*3+4           -> 10        ((2*3)+4)
-   (1+2)*3         -> 9
-   3*(2+4)         -> 18
-   10+20+30        -> 60
-   (5+5)*(2+8)     -> 100
-   ((3+4)*5)       -> 35
-
-
-6. ARCHITECTURE ALTERNATIVE (NON COMPILEE)
-
-   L'architecture Pattern State est documentee dans etat.h/etat.cpp.
-   Cette approche utilise une table LALR(1) avec 10 etats (Etat0 a Etat9)
-   et materialise l'automate par des classes d'etats concrets.
-
-   Raison de ne pas compiler: la descente recursive offre une solution plus
-   simple et directe pour cette grammaire simple, tout en garantissant
-   l'ordre d'evaluation correct.
+   42              →   42
+   1+2             →    3
+   2*3             →    6
+   1+2*3           →    7   (priorité : 1+(2*3))
+   2*3+4           →   10   ((2*3)+4)
+   (1+2)*3         →    9
+   3*(2+4)         →   18
+   10+20+30        →   60   (associativité gauche)
+   (5+5)*(2+8)     →  100
+   ((3+4)*5)       →   35
 
 
-7. NOTES DE CONFORMITE
+6. NOTES
+────────
 
-   - Compilation sans warnings: g++ -Wall -std=c++11
-   - Nettoyage memoire: suppression des symboles apres reduction
-   - Fichiers: uniquement sources (.h, .cpp) et Makefile dans l'archive
-   - Commentaires: concis en francais, expliquant le "pourquoi"
+   • Compilation sans warnings : g++ -Wall -std=c++11
+   • Gestion mémoire : chaque symbole est supprimé après réduction ;
+     les états se suppriment eux-mêmes après dépilage (delete this)
+   • L'évaluation est réalisée à l'intérieur du programme d'analyse
+     (lors de chaque réduction), conformément à l'énoncé

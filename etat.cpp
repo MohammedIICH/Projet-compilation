@@ -1,268 +1,318 @@
 #include "etat.h"
 #include "automate.h"
 #include <iostream>
-#include <cstdlib>
 
 using namespace std;
 
-// Fonctions helpers pour les reductions
-int evaluerReduction(int production, stack<Symbole*>& pilSymbole) {
-   switch (production) {
-      case 1: {  // E → E + E
-         if (pilSymbole.size() >= 3) {
-            Symbole* e2 = pilSymbole.top(); pilSymbole.pop();
-            Symbole* op = pilSymbole.top(); pilSymbole.pop();
-            Symbole* e1 = pilSymbole.top(); pilSymbole.pop();
-            int res = e1->getValeur() + e2->getValeur();
-            delete e1; delete op; delete e2;
-            return res;
-         }
-         return 0;
-      }
-      case 2: {  // E → E * E
-         if (pilSymbole.size() >= 3) {
-            Symbole* e2 = pilSymbole.top(); pilSymbole.pop();
-            Symbole* op = pilSymbole.top(); pilSymbole.pop();
-            Symbole* e1 = pilSymbole.top(); pilSymbole.pop();
-            int res = e1->getValeur() * e2->getValeur();
-            delete e1; delete op; delete e2;
-            return res;
-         }
-         return 0;
-      }
-      case 3: {  // E → (E)
-         if (pilSymbole.size() >= 3) {
-            Symbole* close = pilSymbole.top(); pilSymbole.pop();
-            Symbole* e = pilSymbole.top(); pilSymbole.pop();
-            Symbole* open = pilSymbole.top(); pilSymbole.pop();
-            int res = e->getValeur();
-            delete open; delete e; delete close;
-            return res;
-         }
-         return 0;
-      }
-      case 4: {  // E → val
-         if (!pilSymbole.empty()) {
-            Symbole* val = pilSymbole.top(); pilSymbole.pop();
-            int res = val->getValeur();
-            delete val;
-            return res;
-         }
-         return 0;
-      }
-      default:
-         return 0;
-   }
-}
+// ─── Conventions ────────────────────────────────────────────────────────────
+//
+//  • Décalage (shift dN) : empiler le symbole courant sur pilSymbole,
+//    avancer le lexer, empiler le nouvel état sur pilEtat.
+//
+//  • Réduction (rX) : dépiler |rhs| symboles + |rhs| états, calculer la
+//    valeur, empiler une Expression sur pilSymbole, puis appeler GOTO en
+//    passant new Symbole(E) à l'état maintenant au sommet de pilEtat.
+//
+//  • GOTO (réception de E) : empiler le bon état, supprimer le symbole E
+//    temporaire.  Ne PAS avancer le lexer (le terminal courant reste le même).
+//
+//  • delete this : chaque état se supprime après s'être dépilé.  Après
+//    « pilEtat.pop(); delete this; », on ne touche plus à aucun membre ;
+//    on n'utilise que les références locales (pilEtat, pilSymbole) qui
+//    pointent sur l'Automate, toujours vivant.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// État 0: État de départ
-Etat* Etat0::transition(Automate& a, Symbole* s) {
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+
+// ── Etat0 : état initial ─────────────────────────────────────────────────────
+// val→d3 │ (→d2 │ E→1
+void Etat0::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case INT:  // val → décaler État 1
-         pilSymbole.push(s);
-         return new Etat1();
-      case OPENPAR:  // ( → décaler État 4
-         pilSymbole.push(s);
-         return new Etat4();
-      case FIN:  // $ → Erreur ou donner priorité
-         cerr << "Erreur: FIN en état 0 sans expression" << endl;
-         return nullptr;
+      case INT:     // décalage vers Etat3
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat3());
+         break;
+      case OPENPAR: // décalage vers Etat2
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat2());
+         break;
+      case E:       // GOTO 1
+         delete s;
+         pe.push(new Etat1());
+         break;
       default:
-         cerr << "Erreur: symbole non attendu en état 0" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 0)" << endl;
+         a.setErreur();
    }
 }
 
-// État 1: Après lecture de INT (val)
-Etat* Etat1::transition(Automate& a, Symbole* s) {
-   stack<Etat*>& pilEtat = a.getPilEtat();
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
-
-   // Production: E → val (réduction)
-   int valeur = evaluerReduction(4, pilSymbole);  // Production 4
-   
-   pilEtat.pop();  // Dépile Etat1
-   Etat* prevEtat = pilEtat.top();
-   
-   // Crée une expression et la pousse
-   Expression* expr = new Expression(valeur);
-   pilSymbole.push(expr);
-   
-   // Demande au state précédent de traiter le non-terminal E
-   return prevEtat->transition(a, new Symbole(E));
-}
-
-
-// État 2: Après shift de E depuis État 0
-Etat* Etat2::transition(Automate& a, Symbole* s) {
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+// ── Etat1 : E lu au niveau racine ────────────────────────────────────────────
+// +→d4 │ *→d5 │ $→accepter
+void Etat1::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case PLUS:  // + → décaler État 2
-         pilSymbole.push(s);
-         return new Etat2();
-      case MULT:  // * → décaler État 3
-         pilSymbole.push(s);
-         return new Etat3();
-      case FIN:  // $ → accepter (si c'est l'axiome)
-         if (pilSymbole.size() >= 1) {
-            Symbole* top = pilSymbole.top();
-            if (top->getIdent() == E) {
-               a.setResultat(top->getValeur());
-               return nullptr;  // Signal d'acceptation
-            }
-         }
-         cerr << "Erreur: FIN sans expression complète" << endl;
-         return nullptr;
+      case PLUS:    // décalage vers Etat4
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat4());
+         break;
+      case MULT:    // décalage vers Etat5
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat5());
+         break;
+      case FIN:     // ACCEPTER
+         a.setResultat(ps.top()->getValeur());
+         a.setAccepte();
+         break;
       default:
-         cerr << "Erreur: symbole non attendu en état 2" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 1)" << endl;
+         a.setErreur();
    }
 }
 
-// État 3: Après shift de MULT
-Etat* Etat3::transition(Automate& a, Symbole* s) {
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+// ── Etat2 : après ( ──────────────────────────────────────────────────────────
+// val→d3 │ (→d2 │ E→6
+void Etat2::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case INT:  // val → décaler État 1
-         pilSymbole.push(s);
-         return new Etat1();
-      case OPENPAR:  // ( → décaler État 4
-         pilSymbole.push(s);
-         return new Etat4();
+      case INT:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat3());
+         break;
+      case OPENPAR:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat2());
+         break;
+      case E:       // GOTO 6
+         delete s;
+         pe.push(new Etat6());
+         break;
       default:
-         cerr << "Erreur: symbole non attendu en état 3" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 2)" << endl;
+         a.setErreur();
    }
 }
 
-// État 4: Après OPENPAR
-Etat* Etat4::transition(Automate& a, Symbole* s) {
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+// ── Etat3 : après val ────────────────────────────────────────────────────────
+// r5 pour tout : +, *, ), $   →   E → val
+void Etat3::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case INT:  // val → décaler État 1
-         pilSymbole.push(s);
-         return new Etat1();
-      case OPENPAR:  // ( → décaler État 4
-         pilSymbole.push(s);
-         return new Etat4();
-      case PLUS:  // + → décaler État 2
-         pilSymbole.push(s);
-         return new Etat2();
+      case PLUS:
+      case MULT:
+      case CLOSEPAR:
+      case FIN: {
+         // Réduction r5 : E → val  (longueur 1)
+         Symbole* val = ps.top(); ps.pop();
+         int v = val->getValeur();
+         delete val;
+
+         pe.pop(); delete this;   // dépile et supprime cet état
+
+         ps.push(new Expression(v));
+         pe.top()->transition(a, new Symbole(E));   // GOTO
+         break;
+      }
       default:
-         cerr << "Erreur: symbole non attendu en état 4" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 3)" << endl;
+         a.setErreur();
    }
 }
 
-// État 5: Après réduction E dans état 4
-Etat* Etat5::transition(Automate& a, Symbole* s) {
-   stack<Etat*>& pilEtat = a.getPilEtat();
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+// ── Etat4 : après E + ────────────────────────────────────────────────────────
+// val→d3 │ (→d2 │ E→7
+void Etat4::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case CLOSEPAR: {  // ) → décaler État 5 (et puis réductionE → (E))
-         pilSymbole.push(s);
-         // Production: E → (E) (réduction)
-         int valeur = evaluerReduction(3, pilSymbole);
-         
-         pilEtat.pop();  // Dépile Etat5
-         pilEtat.pop();  // Dépile Etat4
-         Etat* prevEtat = pilEtat.top();
-         
-         Expression* expr = new Expression(valeur);
-         pilSymbole.push(expr);
-         
-         return prevEtat->transition(a, new Symbole(E));
-      }
-      case PLUS: {  // + → décaler État 2 si E attendu
-         pilSymbole.push(s);
-         return new Etat2();
-      }
-      case MULT: {  // * → décaler État 3
-         pilSymbole.push(s);
-         return new Etat3();
-      }
+      case INT:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat3());
+         break;
+      case OPENPAR:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat2());
+         break;
+      case E:       // GOTO 7
+         delete s;
+         pe.push(new Etat7());
+         break;
       default:
-         cerr << "Erreur: symbole non attendu en état 5" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 4)" << endl;
+         a.setErreur();
    }
 }
 
-// État 6: Après shift de + avec priorité
-Etat* Etat6::transition(Automate& a, Symbole* s) {
-   stack<Etat*>& pilEtat = a.getPilEtat();
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
-
-   // Production: E → E + E (réduction avec associativité gauche)
-   int valeur = evaluerReduction(1, pilSymbole);
-   
-   pilEtat.pop();  // Dépile l'état
-   Etat* prevEtat = pilEtat.top();
-   
-   Expression* expr = new Expression(valeur);
-   pilSymbole.push(expr);
-   
-   return prevEtat->transition(a, new Symbole(E));
-}
-
-// État 7: Après shift de * avec priorité  
-Etat* Etat7::transition(Automate& a, Symbole* s) {
-   stack<Etat*>& pilEtat = a.getPilEtat();
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
-
-   // Production: E → E * E (réduction avec associativité gauche)
-   int valeur = evaluerReduction(2, pilSymbole);
-   
-   pilEtat.pop();  // Dépile l'état
-   Etat* prevEtat = pilEtat.top();
-   
-   Expression* expr = new Expression(valeur);
-   pilSymbole.push(expr);
-   
-   return prevEtat->transition(a, new Symbole(E));
-}
-
-// État 8: Après E dans parenthèses
-Etat* Etat8::transition(Automate& a, Symbole* s) {
-   stack<Etat*>& pilEtat = a.getPilEtat();
-   stack<Symbole*>& pilSymbole = a.getPilSymbole();
+// ── Etat5 : après E * ────────────────────────────────────────────────────────
+// val→d3 │ (→d2 │ E→8
+void Etat5::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
 
    switch (s->getIdent()) {
-      case CLOSEPAR: {  // ) → production E → (E)
-         pilSymbole.push(s);
-         // Réduction
-         int valeur = evaluerReduction(3, pilSymbole);
-         
-         pilEtat.pop();  // État 8
-         pilEtat.pop();  // État 4
-         Etat* prevEtat = pilEtat.top();
-         
-         Expression* expr = new Expression(valeur);
-         pilSymbole.push(expr);
-         
-         return prevEtat->transition(a, new Symbole(E));
-      }
-      case PLUS: {
-         pilSymbole.push(s);
-         return new Etat2();
-      }
-      case MULT: {
-         pilSymbole.push(s);
-         return new Etat3();
-      }
+      case INT:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat3());
+         break;
+      case OPENPAR:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat2());
+         break;
+      case E:       // GOTO 8
+         delete s;
+         pe.push(new Etat8());
+         break;
       default:
-         cerr << "Erreur: symbole non attendu en état 8" << endl;
-         return nullptr;
+         cerr << "Erreur syntaxique (etat 5)" << endl;
+         a.setErreur();
    }
 }
 
-// État 9: Erreur/Réduction finale
-Etat* Etat9::transition(Automate& a, Symbole* s) {
-   cerr << "Erreur: état 9 atteint de manière inattendue" << endl;
-   return nullptr;
+// ── Etat6 : après ( E ────────────────────────────────────────────────────────
+// +→d4 │ *→d5 │ )→d9
+void Etat6::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
+
+   switch (s->getIdent()) {
+      case PLUS:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat4());
+         break;
+      case MULT:
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat5());
+         break;
+      case CLOSEPAR:  // décalage vers Etat9
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat9());
+         break;
+      default:
+         cerr << "Erreur syntaxique (etat 6)" << endl;
+         a.setErreur();
+   }
+}
+
+// ── Etat7 : après E + E ──────────────────────────────────────────────────────
+// +→r2 │ *→d5 (priorité *>+) │ )→r2 │ $→r2   →   E → E + E
+void Etat7::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
+
+   switch (s->getIdent()) {
+      case MULT:    // décalage d5 : * a priorité sur + (conflit d5/r2 → d5)
+         ps.push(s);
+         a.avancerLexer();
+         pe.push(new Etat5());
+         break;
+      case PLUS:
+      case CLOSEPAR:
+      case FIN: {
+         // Réduction r2 : E → E + E  (longueur 3, associativité gauche)
+         Symbole* e2 = ps.top(); ps.pop();
+         Symbole* op = ps.top(); ps.pop();
+         Symbole* e1 = ps.top(); ps.pop();
+         int v = e1->getValeur() + e2->getValeur();
+         delete e1; delete op; delete e2;
+
+         // Dépiler 3 états : Etat7 (this), Etat4, et l'état précédant E
+         pe.pop(); delete this;
+         Etat* s4   = pe.top(); pe.pop(); delete s4;
+         Etat* prev = pe.top(); pe.pop(); delete prev;
+
+         ps.push(new Expression(v));
+         pe.top()->transition(a, new Symbole(E));   // GOTO
+         break;
+      }
+      default:
+         cerr << "Erreur syntaxique (etat 7)" << endl;
+         a.setErreur();
+   }
+}
+
+// ── Etat8 : après E * E ──────────────────────────────────────────────────────
+// +→r3 │ *→r3 │ )→r3 │ $→r3   →   E → E * E
+void Etat8::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
+
+   switch (s->getIdent()) {
+      case PLUS:
+      case MULT:
+      case CLOSEPAR:
+      case FIN: {
+         // Réduction r3 : E → E * E  (longueur 3)
+         Symbole* e2 = ps.top(); ps.pop();
+         Symbole* op = ps.top(); ps.pop();
+         Symbole* e1 = ps.top(); ps.pop();
+         int v = e1->getValeur() * e2->getValeur();
+         delete e1; delete op; delete e2;
+
+         // Dépiler 3 états : Etat8 (this), Etat5, et l'état précédant E
+         pe.pop(); delete this;
+         Etat* s5   = pe.top(); pe.pop(); delete s5;
+         Etat* prev = pe.top(); pe.pop(); delete prev;
+
+         ps.push(new Expression(v));
+         pe.top()->transition(a, new Symbole(E));   // GOTO
+         break;
+      }
+      default:
+         cerr << "Erreur syntaxique (etat 8)" << endl;
+         a.setErreur();
+   }
+}
+
+// ── Etat9 : après ( E ) ──────────────────────────────────────────────────────
+// +→r4 │ *→r4 │ )→r4 │ $→r4   →   E → ( E )
+void Etat9::transition(Automate& a, Symbole* s) {
+   stack<Etat*>&    pe = a.getPilEtat();
+   stack<Symbole*>& ps = a.getPilSymbole();
+
+   switch (s->getIdent()) {
+      case PLUS:
+      case MULT:
+      case CLOSEPAR:
+      case FIN: {
+         // Réduction r4 : E → ( E )  (longueur 3)
+         Symbole* close = ps.top(); ps.pop();
+         Symbole* e     = ps.top(); ps.pop();
+         Symbole* open  = ps.top(); ps.pop();
+         int v = e->getValeur();
+         delete close; delete e; delete open;
+
+         // Dépiler 3 états : Etat9 (this), Etat6, Etat2
+         pe.pop(); delete this;
+         Etat* s6 = pe.top(); pe.pop(); delete s6;
+         Etat* s2 = pe.top(); pe.pop(); delete s2;
+
+         ps.push(new Expression(v));
+         pe.top()->transition(a, new Symbole(E));   // GOTO
+         break;
+      }
+      default:
+         cerr << "Erreur syntaxique (etat 9)" << endl;
+         a.setErreur();
+   }
 }

@@ -3,6 +3,10 @@
 
 using namespace std;
 
+static const string Etiquettes[] = {
+   "OPENPAR", "CLOSEPAR", "PLUS", "MULT", "INT", "FIN", "ERREUR", "E", "E_PRIME"
+};
+
 void Symbole::Affiche() {
    cout << Etiquettes[ident];
 }

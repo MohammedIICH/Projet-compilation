@@ -1,40 +1,35 @@
 #pragma once
 
 #include <stack>
-#include <vector>
 #include "symbole.h"
 #include "lexer.h"
 
 using namespace std;
 
-// Types d'actions LALR(1)
-enum ActionType { SHIFT, REDUCE, ACCEPT, ERROR_ACTION };
-
-struct Action {
-   ActionType type;
-   int param;  // numéro d'état pour SHIFT, numéro de production pour REDUCE
-};
+class Etat;  // forward declaration
 
 class Automate {
    public:
       Automate();
       ~Automate();
-      
+
       bool Analyser(const string& expression);
       int GetResultat() const { return resultat; }
       void Afficher();
 
+      // Accesseurs pour le design pattern State
+      stack<Etat*>& getPilEtat()       { return pilEtat; }
+      stack<Symbole*>& getPilSymbole() { return pilSymbole; }
+      void setResultat(int r) { resultat = r; }
+      void setAccepte()       { accepte = true; }
+      void setErreur()        { erreur = true; }
+      void avancerLexer()     { if (lexer) lexer->Avancer(); }
+
    private:
-      stack<int> pilEtat;
+      stack<Etat*>    pilEtat;
       stack<Symbole*> pilSymbole;
-      int resultat;
-      
-      // Table d'analyse LALR(1)
-      Action getAction(int etat, int symbole);
-      int getGoto(int etat, int non_terminal);
-      
-      // Évaluation des réductions
-      int evaluerReduction(int production);
+      int  resultat;
+      bool accepte;
+      bool erreur;
+      Lexer* lexer;  // positionné pendant Analyser(), null sinon
 };
-
-

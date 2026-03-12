@@ -3,7 +3,7 @@ CXXFLAGS = -Wall -std=c++11
 LDFLAGS =
 
 TARGET = analyseur
-OBJECTS = main.o symbole.o lexer.o automate.o
+OBJECTS = main.o symbole.o lexer.o etat.o automate.o
 
 # Cible par defaut
 all: $(TARGET)
@@ -22,7 +22,10 @@ symbole.o: symbole.cpp symbole.h
 lexer.o: lexer.cpp lexer.h symbole.h
 	$(CXX) $(CXXFLAGS) -c lexer.cpp
 
-automate.o: automate.cpp automate.h
+etat.o: etat.cpp etat.h automate.h
+	$(CXX) $(CXXFLAGS) -c etat.cpp
+
+automate.o: automate.cpp automate.h etat.h
 	$(CXX) $(CXXFLAGS) -c automate.cpp
 
 # Nettoyage des fichiers generes
