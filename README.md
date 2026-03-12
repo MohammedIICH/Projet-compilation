@@ -17,9 +17,22 @@ make clean    # supprime les fichiers objets et l'exécutable
 
 ## Utilisation
 
-**Mode test intégré** (10 expressions prédéfinies) :
 ```bash
 ./analyseur
+```
+
+Au lancement, un menu propose deux options :
+
+**1 — Tests automatiques** : exécute les 10 expressions prédéfinies et affiche les résultats.
+
+**2 — Mode interactif** : entrez vos propres expressions une par une. Tapez `q` pour quitter.
+
+```
+  > 1+2*3
+  ✓ Résultat: 7
+  > (5+3)*2
+  ✓ Résultat: 16
+  > q
 ```
 
 **Mode ligne de commande** (tests de l'équipe enseignante) :
@@ -39,7 +52,7 @@ g++ -Wall -std=c++11 -o tester tester.cpp symbole.o lexer.o etat.o automate.o
 | `lexer.h/cpp` | Analyseur lexical — tokenisation de la chaîne d'entrée |
 | `etat.h/cpp` | **Design pattern State** — classes `Etat0` … `Etat9` |
 | `automate.h/cpp` | Automate LALR(1) — boucle d'analyse + évaluation |
-| `main.cpp` | Programme principal avec suite de tests |
+| `main.cpp` | Programme principal : menu interactif + tests automatiques |
 | `tester.cpp` | Point d'entrée pour les tests de l'équipe enseignante |
 | `Makefile` | Règles de compilation |
 
