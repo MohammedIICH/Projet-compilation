@@ -20,4 +20,3 @@ void Expression::Affiche() {
    Symbole::Affiche();
    cout << "(" << valeur << ")";
 }
-

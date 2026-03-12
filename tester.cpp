@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
 
     string expression(argv[1]);
     Automate automate;
-    
+
     if (automate.Analyser(expression)) {
         cout << automate.GetResultat() << endl;
         return 0;
